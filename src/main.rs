@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use seisrefine::{
-    IngestOptions, InterpMethod, SectionAxis, UpscaleOptions, ingest_segy, inspect_segy,
-    render_section_csv, run_validation, upscale_store,
+    IngestOptions, InterpMethod, SectionAxis, SeisGeometryOptions, UpscaleOptions, ingest_segy,
+    inspect_segy, render_section_csv, run_validation, upscale_store,
 };
 
 #[derive(Debug, Parser)]
@@ -24,6 +24,18 @@ enum Command {
         output: PathBuf,
         #[arg(long, value_delimiter = ',', default_values_t = [16_usize, 16, 64])]
         chunk: Vec<usize>,
+        #[arg(long)]
+        inline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        inline_type: HeaderTypeArg,
+        #[arg(long)]
+        crossline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        crossline_type: HeaderTypeArg,
+        #[arg(long)]
+        third_axis_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        third_axis_type: HeaderTypeArg,
     },
     Upscale {
         input: PathBuf,
@@ -62,6 +74,12 @@ enum MethodArg {
     Cubic,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum HeaderTypeArg {
+    I16,
+    I32,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -72,12 +90,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             input,
             output,
             chunk,
+            inline_byte,
+            inline_type,
+            crossline_byte,
+            crossline_type,
+            third_axis_byte,
+            third_axis_type,
         } => {
             let handle = ingest_segy(
                 input,
                 output,
                 IngestOptions {
                     chunk_shape: parse_chunk_shape(&chunk),
+                    geometry: build_ingest_geometry(
+                        inline_byte,
+                        inline_type,
+                        crossline_byte,
+                        crossline_type,
+                        third_axis_byte,
+                        third_axis_type,
+                    ),
                     ..IngestOptions::default()
                 },
             )?;
@@ -144,5 +176,34 @@ impl From<MethodArg> for InterpMethod {
             MethodArg::Linear => InterpMethod::Linear,
             MethodArg::Cubic => InterpMethod::Cubic,
         }
+    }
+}
+
+fn build_ingest_geometry(
+    inline_byte: Option<u16>,
+    inline_type: HeaderTypeArg,
+    crossline_byte: Option<u16>,
+    crossline_type: HeaderTypeArg,
+    third_axis_byte: Option<u16>,
+    third_axis_type: HeaderTypeArg,
+) -> SeisGeometryOptions {
+    let mut geometry = SeisGeometryOptions::default();
+    geometry.header_mapping.inline_3d =
+        inline_byte.map(|start_byte| header_field("INLINE_3D", start_byte, inline_type));
+    geometry.header_mapping.crossline_3d =
+        crossline_byte.map(|start_byte| header_field("CROSSLINE_3D", start_byte, crossline_type));
+    geometry.third_axis_field =
+        third_axis_byte.map(|start_byte| header_field("THIRD_AXIS", start_byte, third_axis_type));
+    geometry
+}
+
+fn header_field(
+    name: &'static str,
+    start_byte: u16,
+    value_type: HeaderTypeArg,
+) -> sgyx::HeaderField {
+    match value_type {
+        HeaderTypeArg::I16 => sgyx::HeaderField::new_i16(name, start_byte),
+        HeaderTypeArg::I32 => sgyx::HeaderField::new_i32(name, start_byte),
     }
 }

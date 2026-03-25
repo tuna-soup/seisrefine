@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array3;
 use seisrefine::{
-    IngestOptions, InterpMethod, SectionAxis, ValidationOptions, ingest_segy, load_array,
-    open_store, render_section_csv, run_validation, upscale_2x, upscale_store,
+    IngestOptions, InterpMethod, SectionAxis, SeisGeometryOptions, SeisRefineError,
+    ValidationOptions, ingest_segy, load_array, load_source_volume_with_options, open_store,
+    render_section_csv, run_validation, upscale_2x, upscale_store,
 };
 use tempfile::tempdir;
 
@@ -16,13 +17,38 @@ fn fixture_path(relative: &str) -> PathBuf {
 }
 
 fn find_dev_root() -> PathBuf {
-    let start = Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize().unwrap();
+    let start = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .canonicalize()
+        .unwrap();
     for ancestor in start.ancestors() {
         if ancestor.join("sgyx").is_dir() {
             return ancestor.to_path_buf();
         }
     }
     panic!("unable to locate sibling sgyx repository from CARGO_MANIFEST_DIR");
+}
+
+fn relocate_small_geometry_headers(path: &Path) {
+    let mut bytes = fs::read(path).unwrap();
+    let first_trace_offset = 3600usize;
+    let trace_size = 240 + (50 * 4);
+
+    for trace_index in 0..25 {
+        let trace_offset = first_trace_offset + trace_index * trace_size;
+        let inline_src = trace_offset + 188;
+        let crossline_src = trace_offset + 192;
+        let inline_dst = trace_offset + 16;
+        let crossline_dst = trace_offset + 24;
+
+        let inline = bytes[inline_src..inline_src + 4].to_vec();
+        let crossline = bytes[crossline_src..crossline_src + 4].to_vec();
+        bytes[inline_dst..inline_dst + 4].copy_from_slice(&inline);
+        bytes[crossline_dst..crossline_dst + 4].copy_from_slice(&crossline);
+        bytes[inline_src..inline_src + 4].fill(0);
+        bytes[crossline_src..crossline_src + 4].fill(0);
+    }
+
+    fs::write(path, bytes).unwrap();
 }
 
 #[test]
@@ -44,10 +70,61 @@ fn ingest_writes_a_zarr_store_and_manifest() {
     assert!(handle.manifest_path().exists());
     assert_eq!(handle.manifest.shape, [5, 5, 50]);
     assert_eq!(handle.manifest.chunk_shape, [2, 3, 50]);
+    assert_eq!(handle.manifest.source.geometry.inline_field.start_byte, 189);
+    assert_eq!(
+        handle.manifest.source.geometry.crossline_field.start_byte,
+        193
+    );
+    assert!(handle.manifest.source.geometry.third_axis_field.is_none());
 
     let array = load_array(&handle).unwrap();
     assert_eq!(array.shape(), &[5, 5, 50]);
     assert!((array[[0, 0, 0]] - 1.199_999_8).abs() < 1.0e-5);
+}
+
+#[test]
+fn ingest_rejects_irregular_geometry_with_structured_error() {
+    let temp = tempdir().unwrap();
+    let store_root = temp.path().join("small-ps.zarr");
+    let error = ingest_segy(
+        fixture_path("small-ps.sgy"),
+        &store_root,
+        IngestOptions::default(),
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        SeisRefineError::UnsupportedSurveyGeometry { .. }
+    ));
+}
+
+#[test]
+fn ingest_accepts_explicit_header_mapping_for_nonstandard_dense_file() {
+    let temp = tempdir().unwrap();
+    let segy_path = temp.path().join("small-alt.sgy");
+    fs::copy(fixture_path("small.sgy"), &segy_path).unwrap();
+    relocate_small_geometry_headers(&segy_path);
+
+    let volume = load_source_volume_with_options(
+        &segy_path,
+        &IngestOptions {
+            geometry: SeisGeometryOptions {
+                header_mapping: sgyx::HeaderMapping {
+                    inline_3d: Some(sgyx::HeaderField::new_i32("INLINE_3D_ALT", 17)),
+                    crossline_3d: Some(sgyx::HeaderField::new_i32("CROSSLINE_3D_ALT", 25)),
+                    ..sgyx::HeaderMapping::default()
+                },
+                third_axis_field: None,
+            },
+            ..IngestOptions::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(volume.data.shape(), &[5, 5, 50]);
+    assert_eq!(volume.source.geometry.inline_field.start_byte, 17);
+    assert_eq!(volume.source.geometry.crossline_field.start_byte, 25);
 }
 
 #[test]

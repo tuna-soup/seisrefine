@@ -24,6 +24,16 @@ pub enum SeisRefineError {
     StoreAlreadyExists(PathBuf),
     #[error("store manifest missing at {0}")]
     MissingManifest(PathBuf),
+    #[error(
+        "unsupported survey geometry for dense post-stack ingest: classification={classification:?}, observed={observed_trace_count}, expected={expected_trace_count}, missing_bins={missing_bin_count}, duplicate_coordinates={duplicate_coordinate_count}"
+    )]
+    UnsupportedSurveyGeometry {
+        classification: sgyx::GeometryClassification,
+        observed_trace_count: usize,
+        expected_trace_count: usize,
+        missing_bin_count: usize,
+        duplicate_coordinate_count: usize,
+    },
     #[error("only post-stack cubes are supported in v1; found {offset_count} offsets")]
     UnsupportedOffsetCount { offset_count: usize },
     #[error("unsupported scale factor {scale}; v1 only supports 2x")]

@@ -1,10 +1,15 @@
 use std::path::Path;
 
 use ndarray::Array3;
-use sgyx::{ValidationMode, inspect_file, open};
+use sgyx::{
+    GeometryClassification, GeometryOptions, HeaderField, HeaderMapping, ValidationMode,
+    inspect_file, open,
+};
 
 use crate::error::SeisRefineError;
-use crate::metadata::{DatasetKind, SourceIdentity, StoreManifest, VolumeAxes};
+use crate::metadata::{
+    DatasetKind, GeometryProvenance, HeaderFieldSpec, SourceIdentity, StoreManifest, VolumeAxes,
+};
 use crate::store::{StoreHandle, create_store};
 
 #[derive(Debug, Clone)]
@@ -14,10 +19,26 @@ pub struct SourceVolume {
     pub data: Array3<f32>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+pub struct SeisGeometryOptions {
+    pub header_mapping: HeaderMapping,
+    pub third_axis_field: Option<HeaderField>,
+}
+
+impl Default for SeisGeometryOptions {
+    fn default() -> Self {
+        Self {
+            header_mapping: HeaderMapping::default(),
+            third_axis_field: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct IngestOptions {
     pub chunk_shape: [usize; 3],
     pub validation_mode: ValidationMode,
+    pub geometry: SeisGeometryOptions,
 }
 
 impl Default for IngestOptions {
@@ -25,6 +46,7 @@ impl Default for IngestOptions {
         Self {
             chunk_shape: [16, 16, 64],
             validation_mode: ValidationMode::Strict,
+            geometry: SeisGeometryOptions::default(),
         }
     }
 }
@@ -34,7 +56,7 @@ pub fn ingest_segy(
     store_root: impl AsRef<Path>,
     options: IngestOptions,
 ) -> Result<StoreHandle, SeisRefineError> {
-    let volume = load_source_volume(segy_path, options.validation_mode)?;
+    let volume = load_source_volume_with_options(segy_path, &options)?;
     let shape = [
         volume.data.shape()[0],
         volume.data.shape()[1],
@@ -59,15 +81,45 @@ pub fn load_source_volume(
     segy_path: impl AsRef<Path>,
     validation_mode: ValidationMode,
 ) -> Result<SourceVolume, SeisRefineError> {
+    load_source_volume_with_options(
+        segy_path,
+        &IngestOptions {
+            validation_mode,
+            ..IngestOptions::default()
+        },
+    )
+}
+
+pub fn load_source_volume_with_options(
+    segy_path: impl AsRef<Path>,
+    options: &IngestOptions,
+) -> Result<SourceVolume, SeisRefineError> {
     let segy_path = segy_path.as_ref();
     let summary = inspect_file(segy_path)?;
     let reader = open(
         segy_path,
         sgyx::ReaderOptions {
-            validation_mode,
+            validation_mode: options.validation_mode,
+            header_mapping: options.geometry.header_mapping.clone(),
             ..sgyx::ReaderOptions::default()
         },
     )?;
+    let geometry_report = reader.analyze_geometry(GeometryOptions {
+        third_axis_field: options.geometry.third_axis_field,
+        ..GeometryOptions::default()
+    })?;
+    if !matches!(
+        geometry_report.classification,
+        GeometryClassification::RegularDense
+    ) {
+        return Err(SeisRefineError::UnsupportedSurveyGeometry {
+            classification: geometry_report.classification,
+            observed_trace_count: geometry_report.observed_trace_count,
+            expected_trace_count: geometry_report.expected_trace_count,
+            missing_bin_count: geometry_report.missing_bin_count,
+            duplicate_coordinate_count: geometry_report.duplicate_coordinate_count,
+        });
+    }
     let cube = reader.assemble_cube()?;
     if cube.offsets.len() != 1 {
         return Err(SeisRefineError::UnsupportedOffsetCount {
@@ -85,6 +137,11 @@ pub fn load_source_volume(
             samples_per_trace: cube.samples_per_trace,
             sample_interval_us: cube.sample_interval_us,
             sample_format_code: summary.sample_format_code,
+            geometry: GeometryProvenance {
+                inline_field: header_field_spec(reader.header_mapping().inline_3d()),
+                crossline_field: header_field_spec(reader.header_mapping().crossline_3d()),
+                third_axis_field: options.geometry.third_axis_field.map(header_field_spec),
+            },
         },
         axes: VolumeAxes {
             ilines: cube.ilines.into_iter().map(|value| value as f64).collect(),
@@ -101,4 +158,12 @@ fn clamp_chunk_shape(chunk_shape: [usize; 3], shape: [usize; 3]) -> [usize; 3] {
         chunk_shape[1].max(1).min(shape[1].max(1)),
         chunk_shape[2].max(1).min(shape[2].max(1)),
     ]
+}
+
+fn header_field_spec(field: HeaderField) -> HeaderFieldSpec {
+    HeaderFieldSpec {
+        name: field.name.to_string(),
+        start_byte: field.start_byte,
+        value_type: format!("{:?}", field.value_type),
+    }
 }

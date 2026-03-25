@@ -7,9 +7,13 @@ mod upscale;
 mod validation;
 
 pub use error::SeisRefineError;
-pub use ingest::{IngestOptions, SourceVolume, ingest_segy, load_source_volume};
+pub use ingest::{
+    IngestOptions, SeisGeometryOptions, SourceVolume, ingest_segy, load_source_volume,
+    load_source_volume_with_options,
+};
 pub use metadata::{
-    DatasetKind, DerivedFrom, InterpMethod, SourceIdentity, StoreManifest, VolumeAxes,
+    DatasetKind, DerivedFrom, GeometryProvenance, HeaderFieldSpec, InterpMethod, SourceIdentity,
+    StoreManifest, VolumeAxes,
 };
 pub use render::{SectionAxis, render_section_csv};
 pub use store::{ARRAY_PATH, StoreHandle, load_array, open_store};
@@ -32,6 +36,7 @@ pub struct SegyInspection {
     pub sample_format_code: u16,
     pub fixed_length_trace: Option<bool>,
     pub endianness: String,
+    pub warnings: Vec<String>,
 }
 
 pub fn inspect_segy(path: impl AsRef<Path>) -> Result<SegyInspection, SeisRefineError> {
@@ -44,5 +49,10 @@ pub fn inspect_segy(path: impl AsRef<Path>) -> Result<SegyInspection, SeisRefine
         sample_format_code: summary.sample_format_code,
         fixed_length_trace: summary.fixed_length_trace,
         endianness: format!("{:?}", summary.endianness),
+        warnings: summary
+            .warnings
+            .iter()
+            .map(|warning| format!("{warning:?}"))
+            .collect(),
     })
 }

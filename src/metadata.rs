@@ -2,6 +2,20 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeaderFieldSpec {
+    pub name: String,
+    pub start_byte: u16,
+    pub value_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeometryProvenance {
+    pub inline_field: HeaderFieldSpec,
+    pub crossline_field: HeaderFieldSpec,
+    pub third_axis_field: Option<HeaderFieldSpec>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DatasetKind {
     Source,
@@ -22,6 +36,7 @@ pub struct SourceIdentity {
     pub samples_per_trace: usize,
     pub sample_interval_us: u16,
     pub sample_format_code: u16,
+    pub geometry: GeometryProvenance,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
