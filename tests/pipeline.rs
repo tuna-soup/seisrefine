@@ -9,13 +9,20 @@ use seisrefine::{
 use tempfile::tempdir;
 
 fn fixture_path(relative: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("..")
+    find_dev_root()
         .join("sgyx")
         .join("test-data")
         .join(relative)
+}
+
+fn find_dev_root() -> PathBuf {
+    let start = Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize().unwrap();
+    for ancestor in start.ancestors() {
+        if ancestor.join("sgyx").is_dir() {
+            return ancestor.to_path_buf();
+        }
+    }
+    panic!("unable to locate sibling sgyx repository from CARGO_MANIFEST_DIR");
 }
 
 #[test]

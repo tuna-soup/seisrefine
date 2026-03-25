@@ -127,10 +127,7 @@ pub fn validate_dataset(
 fn discover_default_dataset_paths(
     validation_mode: ValidationMode,
 ) -> Result<Vec<PathBuf>, SeisRefineError> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("..");
+    let root = find_dev_root()?;
     let candidates = vec![
         root.join("sgyx").join("test-data").join("small.sgy"),
         root.join("sgyx").join("test-data").join("f3.sgy"),
@@ -148,6 +145,19 @@ fn discover_default_dataset_paths(
         .collect::<Vec<_>>();
 
     Ok(datasets)
+}
+
+fn find_dev_root() -> Result<PathBuf, SeisRefineError> {
+    let start = Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize()?;
+    for ancestor in start.ancestors() {
+        if ancestor.join("sgyx").is_dir() {
+            return Ok(ancestor.to_path_buf());
+        }
+    }
+
+    Err(SeisRefineError::Message(
+        "unable to locate sibling sgyx repository from CARGO_MANIFEST_DIR".to_string(),
+    ))
 }
 
 fn crop_to_odd_dims(input: &Array3<f32>) -> Array3<f32> {
