@@ -4,15 +4,20 @@ mod metadata;
 mod render;
 mod store;
 mod upscale;
+mod validation;
 
 pub use error::SeisRefineError;
-pub use ingest::{IngestOptions, ingest_segy};
+pub use ingest::{IngestOptions, SourceVolume, ingest_segy, load_source_volume};
 pub use metadata::{
     DatasetKind, DerivedFrom, InterpMethod, SourceIdentity, StoreManifest, VolumeAxes,
 };
 pub use render::{SectionAxis, render_section_csv};
 pub use store::{ARRAY_PATH, StoreHandle, load_array, open_store};
-pub use upscale::{UpscaleOptions, upscale_linear_2x, upscale_store};
+pub use upscale::{UpscaleOptions, upscale_2x, upscale_cubic_2x, upscale_linear_2x, upscale_store};
+pub use validation::{
+    ValidationDatasetReport, ValidationMethodReport, ValidationMetrics, ValidationOptions,
+    ValidationSummary, run_validation, validate_dataset,
+};
 
 use std::path::Path;
 

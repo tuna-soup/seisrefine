@@ -28,6 +28,8 @@ pub enum SeisRefineError {
     UnsupportedOffsetCount { offset_count: usize },
     #[error("unsupported scale factor {scale}; v1 only supports 2x")]
     UnsupportedScale { scale: u8 },
+    #[error("dataset is too small for 2x validation after odd cropping: {shape:?}")]
+    DatasetTooSmallForValidation { shape: [usize; 3] },
     #[error("invalid section index {index} for axis length {len}")]
     InvalidSectionIndex { index: usize, len: usize },
 }

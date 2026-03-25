@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use seisrefine::{
     IngestOptions, InterpMethod, SectionAxis, UpscaleOptions, ingest_segy, inspect_segy,
-    render_section_csv, upscale_store,
+    render_section_csv, run_validation, upscale_store,
 };
 
 #[derive(Debug, Parser)]
@@ -30,8 +30,15 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value_t = 2)]
         scale: u8,
+        #[arg(long, value_enum, default_value_t = MethodArg::Linear)]
+        method: MethodArg,
         #[arg(long, value_delimiter = ',', default_values_t = [16_usize, 16, 64])]
         chunk: Vec<usize>,
+    },
+    Validate {
+        output: PathBuf,
+        #[arg(long = "input")]
+        inputs: Vec<PathBuf>,
     },
     Render {
         input: PathBuf,
@@ -47,6 +54,12 @@ enum Command {
 enum AxisArg {
     Inline,
     Xline,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MethodArg {
+    Linear,
+    Cubic,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,6 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             input,
             output,
             scale,
+            method,
             chunk,
         } => {
             let handle = upscale_store(
@@ -81,11 +95,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 output,
                 UpscaleOptions {
                     scale,
-                    method: InterpMethod::Linear,
+                    method: method.into(),
                     chunk_shape: parse_chunk_shape(&chunk),
                 },
             )?;
             println!("{}", serde_json::to_string_pretty(&handle.manifest)?);
+        }
+        Command::Validate { output, inputs } => {
+            let summary = run_validation(seisrefine::ValidationOptions {
+                output_dir: output,
+                dataset_paths: inputs,
+                validation_mode: sgyx::ValidationMode::Strict,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
         }
         Command::Render {
             input,
@@ -112,6 +134,15 @@ impl From<AxisArg> for SectionAxis {
         match value {
             AxisArg::Inline => SectionAxis::Inline,
             AxisArg::Xline => SectionAxis::Xline,
+        }
+    }
+}
+
+impl From<MethodArg> for InterpMethod {
+    fn from(value: MethodArg) -> Self {
+        match value {
+            MethodArg::Linear => InterpMethod::Linear,
+            MethodArg::Cubic => InterpMethod::Cubic,
         }
     }
 }

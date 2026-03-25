@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ndarray::Array3;
 use seisrefine::{
-    IngestOptions, SectionAxis, ingest_segy, load_array, open_store, render_section_csv,
-    upscale_store,
+    IngestOptions, InterpMethod, SectionAxis, ValidationOptions, ingest_segy, load_array,
+    open_store, render_section_csv, run_validation, upscale_2x, upscale_store,
 };
 use tempfile::tempdir;
 
@@ -85,4 +86,42 @@ fn render_exports_inline_section_to_csv() {
     assert!(header.starts_with("position,"));
     let first_row = lines.next().unwrap();
     assert!(first_row.starts_with("20,"));
+}
+
+#[test]
+fn cubic_matches_linear_on_linear_ramp_midpoints() {
+    let input = Array3::from_shape_vec(
+        (3, 3, 1),
+        vec![
+            0.0, 1.0, 2.0, //
+            10.0, 11.0, 12.0, //
+            20.0, 21.0, 22.0,
+        ],
+    )
+    .unwrap();
+
+    let linear = upscale_2x(&input, InterpMethod::Linear);
+    let cubic = upscale_2x(&input, InterpMethod::Cubic);
+
+    assert_eq!(linear.shape(), &[5, 5, 1]);
+    assert_eq!(cubic.shape(), &[5, 5, 1]);
+    assert!((linear[[0, 1, 0]] - 0.5).abs() < 1.0e-6);
+    assert!((cubic[[0, 1, 0]] - 0.5).abs() < 1.0e-6);
+    assert!((cubic[[1, 1, 0]] - 5.5).abs() < 1.0e-6);
+}
+
+#[test]
+fn validation_writes_dataset_and_summary_reports() {
+    let temp = tempdir().unwrap();
+    let output_dir = temp.path().join("validation");
+    let summary = run_validation(ValidationOptions {
+        output_dir: output_dir.clone(),
+        dataset_paths: vec![fixture_path("small.sgy")],
+        validation_mode: sgyx::ValidationMode::Strict,
+    })
+    .unwrap();
+
+    assert_eq!(summary.dataset_count, 1);
+    assert!(output_dir.join("summary.json").exists());
+    assert!(output_dir.join("small.json").exists());
 }
