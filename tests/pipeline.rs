@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array3;
 use seisrefine::{
-    IngestOptions, InterpMethod, SectionAxis, SeisGeometryOptions, SeisRefineError,
-    ValidationOptions, ingest_segy, load_array, load_source_volume_with_options, open_store,
+    IngestOptions, InterpMethod, PreflightAction, SectionAxis, SeisGeometryOptions,
+    SeisRefineError, SparseSurveyPolicy, ValidationOptions, ingest_segy, load_array,
+    load_occupancy, load_source_volume_with_options, open_store, preflight_segy,
     render_section_csv, run_validation, upscale_2x, upscale_store,
 };
 use tempfile::tempdir;
@@ -49,6 +50,24 @@ fn relocate_small_geometry_headers(path: &Path) {
     }
 
     fs::write(path, bytes).unwrap();
+}
+
+fn bytes_per_sample(sample_format_code: u16) -> usize {
+    match sample_format_code {
+        1 | 2 | 4 | 5 => 4,
+        3 => 2,
+        8 => 1,
+        code => panic!("unsupported sample format code in test fixture helper: {code}"),
+    }
+}
+
+fn remove_last_trace(src: &Path, dst: &Path) {
+    let summary = sgyx::inspect_file(src).unwrap();
+    let mut bytes = fs::read(src).unwrap();
+    let trace_size =
+        240 + summary.samples_per_trace as usize * bytes_per_sample(summary.sample_format_code);
+    bytes.truncate(bytes.len() - trace_size);
+    fs::write(dst, bytes).unwrap();
 }
 
 #[test]
@@ -100,6 +119,25 @@ fn ingest_rejects_irregular_geometry_with_structured_error() {
 }
 
 #[test]
+fn preflight_reports_sparse_regular_recommendation() {
+    let temp = tempdir().unwrap();
+    let sparse_path = temp.path().join("small-sparse.sgy");
+    remove_last_trace(&fixture_path("small.sgy"), &sparse_path);
+
+    let preflight = preflight_segy(&sparse_path, &IngestOptions::default()).unwrap();
+
+    assert_eq!(
+        preflight.geometry.classification,
+        "regular_sparse".to_string()
+    );
+    assert_eq!(
+        preflight.recommended_action,
+        PreflightAction::RegularizeSparseSurvey
+    );
+    assert_eq!(preflight.geometry.missing_bin_count, 1);
+}
+
+#[test]
 fn ingest_accepts_explicit_header_mapping_for_nonstandard_dense_file() {
     let temp = tempdir().unwrap();
     let segy_path = temp.path().join("small-alt.sgy");
@@ -125,6 +163,45 @@ fn ingest_accepts_explicit_header_mapping_for_nonstandard_dense_file() {
     assert_eq!(volume.data.shape(), &[5, 5, 50]);
     assert_eq!(volume.source.geometry.inline_field.start_byte, 17);
     assert_eq!(volume.source.geometry.crossline_field.start_byte, 25);
+}
+
+#[test]
+fn ingest_can_regularize_sparse_poststack_with_occupancy_mask() {
+    let temp = tempdir().unwrap();
+    let sparse_path = temp.path().join("small-sparse.sgy");
+    let store_root = temp.path().join("small-sparse.zarr");
+    remove_last_trace(&fixture_path("small.sgy"), &sparse_path);
+
+    let handle = ingest_segy(
+        &sparse_path,
+        &store_root,
+        IngestOptions {
+            sparse_survey_policy: SparseSurveyPolicy::RegularizeToDense { fill_value: -999.25 },
+            ..IngestOptions::default()
+        },
+    )
+    .unwrap();
+
+    let array = load_array(&handle).unwrap();
+    let occupancy = load_occupancy(&handle).unwrap().unwrap();
+    assert_eq!(array.shape(), &[5, 5, 50]);
+    assert_eq!(occupancy.shape(), &[5, 5]);
+    assert_eq!(occupancy[[4, 4]], 0);
+    assert!((array[[4, 4, 0]] + 999.25).abs() < 1.0e-6);
+    assert_eq!(
+        handle
+            .manifest
+            .source
+            .regularization
+            .as_ref()
+            .unwrap()
+            .source_classification,
+        "regular_sparse"
+    );
+    assert_eq!(
+        handle.manifest.occupancy_array_path.as_deref(),
+        Some("/occupancy")
+    );
 }
 
 #[test]

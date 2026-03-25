@@ -1,6 +1,7 @@
 mod error;
 mod ingest;
 mod metadata;
+mod preflight;
 mod render;
 mod store;
 mod upscale;
@@ -8,15 +9,18 @@ mod validation;
 
 pub use error::SeisRefineError;
 pub use ingest::{
-    IngestOptions, SeisGeometryOptions, SourceVolume, ingest_segy, load_source_volume,
-    load_source_volume_with_options,
+    IngestOptions, SeisGeometryOptions, SourceVolume, SparseSurveyPolicy, ingest_segy,
+    load_source_volume, load_source_volume_with_options,
 };
 pub use metadata::{
-    DatasetKind, DerivedFrom, GeometryProvenance, HeaderFieldSpec, InterpMethod, SourceIdentity,
-    StoreManifest, VolumeAxes,
+    DatasetKind, DerivedFrom, GeometryProvenance, HeaderFieldSpec, InterpMethod,
+    RegularizationProvenance, SourceIdentity, StoreManifest, VolumeAxes,
+};
+pub use preflight::{
+    PreflightAction, PreflightGeometry, SurveyPreflight, preflight_segy,
 };
 pub use render::{SectionAxis, render_section_csv};
-pub use store::{ARRAY_PATH, StoreHandle, load_array, open_store};
+pub use store::{ARRAY_PATH, OCCUPANCY_PATH, StoreHandle, load_array, load_occupancy, open_store};
 pub use upscale::{UpscaleOptions, upscale_2x, upscale_cubic_2x, upscale_linear_2x, upscale_store};
 pub use validation::{
     ValidationDatasetReport, ValidationMethodReport, ValidationMetrics, ValidationOptions,

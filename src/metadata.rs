@@ -16,6 +16,15 @@ pub struct GeometryProvenance {
     pub third_axis_field: Option<HeaderFieldSpec>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegularizationProvenance {
+    pub source_classification: String,
+    pub fill_value: f32,
+    pub observed_trace_count: usize,
+    pub expected_trace_count: usize,
+    pub missing_bin_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DatasetKind {
     Source,
@@ -37,6 +46,7 @@ pub struct SourceIdentity {
     pub sample_interval_us: u16,
     pub sample_format_code: u16,
     pub geometry: GeometryProvenance,
+    pub regularization: Option<RegularizationProvenance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +72,7 @@ pub struct StoreManifest {
     pub chunk_shape: [usize; 3],
     pub axes: VolumeAxes,
     pub array_path: String,
+    pub occupancy_array_path: Option<String>,
     pub created_by: String,
     pub derived_from: Option<DerivedFrom>,
 }

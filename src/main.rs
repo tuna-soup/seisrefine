@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use seisrefine::{
-    IngestOptions, InterpMethod, SectionAxis, SeisGeometryOptions, UpscaleOptions, ingest_segy,
-    inspect_segy, render_section_csv, run_validation, upscale_store,
+    IngestOptions, InterpMethod, SectionAxis, SeisGeometryOptions, SparseSurveyPolicy,
+    UpscaleOptions, ingest_segy, inspect_segy, preflight_segy, render_section_csv,
+    run_validation, upscale_store,
 };
 
 #[derive(Debug, Parser)]
@@ -18,6 +19,21 @@ struct Cli {
 enum Command {
     Inspect {
         input: PathBuf,
+    },
+    Analyze {
+        input: PathBuf,
+        #[arg(long)]
+        inline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        inline_type: HeaderTypeArg,
+        #[arg(long)]
+        crossline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        crossline_type: HeaderTypeArg,
+        #[arg(long)]
+        third_axis_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        third_axis_type: HeaderTypeArg,
     },
     Ingest {
         input: PathBuf,
@@ -36,6 +52,10 @@ enum Command {
         third_axis_byte: Option<u16>,
         #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
         third_axis_type: HeaderTypeArg,
+        #[arg(long)]
+        regularize_sparse: bool,
+        #[arg(long, default_value_t = 0.0)]
+        fill_value: f32,
     },
     Upscale {
         input: PathBuf,
@@ -86,6 +106,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Inspect { input } => {
             println!("{}", serde_json::to_string_pretty(&inspect_segy(input)?)?);
         }
+        Command::Analyze {
+            input,
+            inline_byte,
+            inline_type,
+            crossline_byte,
+            crossline_type,
+            third_axis_byte,
+            third_axis_type,
+        } => {
+            let options = IngestOptions {
+                geometry: build_ingest_geometry(
+                    inline_byte,
+                    inline_type,
+                    crossline_byte,
+                    crossline_type,
+                    third_axis_byte,
+                    third_axis_type,
+                ),
+                ..IngestOptions::default()
+            };
+            println!("{}", serde_json::to_string_pretty(&preflight_segy(input, &options)?)?);
+        }
         Command::Ingest {
             input,
             output,
@@ -96,6 +138,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             crossline_type,
             third_axis_byte,
             third_axis_type,
+            regularize_sparse,
+            fill_value,
         } => {
             let handle = ingest_segy(
                 input,
@@ -110,6 +154,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         third_axis_byte,
                         third_axis_type,
                     ),
+                    sparse_survey_policy: if regularize_sparse {
+                        SparseSurveyPolicy::RegularizeToDense { fill_value }
+                    } else {
+                        SparseSurveyPolicy::Reject
+                    },
                     ..IngestOptions::default()
                 },
             )?;

@@ -55,6 +55,7 @@ pub fn upscale_store(
             sample_axis_ms: input.manifest.axes.sample_axis_ms.clone(),
         },
         array_path: String::new(),
+        occupancy_array_path: None,
         created_by: "seisrefine-0.1.0".to_string(),
         derived_from: Some(DerivedFrom {
             parent_store: input.root.clone(),
@@ -63,7 +64,7 @@ pub fn upscale_store(
         }),
     };
 
-    create_store(output_store_root, manifest, &output_array)
+    create_store(output_store_root, manifest, &output_array, None)
 }
 
 pub fn upscale_2x(input: &Array3<f32>, method: InterpMethod) -> Array3<f32> {
