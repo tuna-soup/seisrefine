@@ -44,4 +44,6 @@ pub enum SeisRefineError {
     DatasetTooSmallForValidation { shape: [usize; 3] },
     #[error("invalid section index {index} for axis length {len}")]
     InvalidSectionIndex { index: usize, len: usize },
+    #[error("section request dataset mismatch: expected {expected}, found {found}")]
+    DatasetIdMismatch { expected: String, found: String },
 }

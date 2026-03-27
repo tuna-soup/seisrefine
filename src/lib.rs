@@ -8,6 +8,11 @@ mod upscale;
 mod validation;
 
 pub use error::SeisRefineError;
+pub use seisdomain_core::{
+    DatasetId, InterpretationPoint, ProcessingParameters, SectionAxis, SectionRequest,
+    SectionTileRequest, VolumeDescriptor,
+};
+pub use seisdomain_views::{PreviewView, SectionView};
 pub use ingest::{
     IngestOptions, SeisGeometryOptions, SourceVolume, SparseSurveyPolicy, ingest_segy,
     load_source_volume, load_source_volume_with_options,
@@ -19,8 +24,11 @@ pub use metadata::{
 pub use preflight::{
     PreflightAction, PreflightGeometry, SurveyPreflight, preflight_segy,
 };
-pub use render::{SectionAxis, render_section_csv};
-pub use store::{ARRAY_PATH, OCCUPANCY_PATH, StoreHandle, load_array, load_occupancy, open_store};
+pub use render::{render_section_csv, render_section_csv_for_request};
+pub use store::{
+    ARRAY_PATH, OCCUPANCY_PATH, StoreHandle, describe_store, load_array, load_occupancy,
+    open_store, section_view,
+};
 pub use upscale::{UpscaleOptions, upscale_2x, upscale_cubic_2x, upscale_linear_2x, upscale_store};
 pub use validation::{
     ValidationDatasetReport, ValidationMethodReport, ValidationMetrics, ValidationOptions,

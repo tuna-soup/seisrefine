@@ -3,10 +3,11 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array3;
 use seisrefine::{
-    IngestOptions, InterpMethod, PreflightAction, SectionAxis, SeisGeometryOptions,
-    SeisRefineError, SparseSurveyPolicy, ValidationOptions, ingest_segy, load_array,
-    load_occupancy, load_source_volume_with_options, open_store, preflight_segy,
-    render_section_csv, run_validation, upscale_2x, upscale_store,
+    DatasetId, IngestOptions, InterpMethod, PreflightAction, SectionAxis, SectionRequest,
+    SeisGeometryOptions, SeisRefineError, SparseSurveyPolicy, ValidationOptions, describe_store,
+    ingest_segy, load_array, load_occupancy, load_source_volume_with_options, open_store,
+    preflight_segy, render_section_csv, render_section_csv_for_request, run_validation,
+    section_view, upscale_2x, upscale_store,
 };
 use tempfile::tempdir;
 
@@ -247,6 +248,71 @@ fn render_exports_inline_section_to_csv() {
     assert!(header.starts_with("position,"));
     let first_row = lines.next().unwrap();
     assert!(first_row.starts_with("20,"));
+}
+
+#[test]
+fn describe_store_returns_shared_volume_descriptor() {
+    let temp = tempdir().unwrap();
+    let source_root = temp.path().join("source.zarr");
+
+    ingest_segy(
+        fixture_path("small.sgy"),
+        &source_root,
+        IngestOptions::default(),
+    )
+    .unwrap();
+
+    let descriptor = describe_store(&source_root).unwrap();
+    assert_eq!(descriptor.id.0, "source.zarr");
+    assert_eq!(descriptor.label, "source");
+    assert_eq!(descriptor.shape, [5, 5, 50]);
+    assert_eq!(descriptor.chunk_shape, [5, 5, 50]);
+}
+
+#[test]
+fn section_view_returns_shared_section_view() {
+    let temp = tempdir().unwrap();
+    let source_root = temp.path().join("source.zarr");
+
+    ingest_segy(
+        fixture_path("small.sgy"),
+        &source_root,
+        IngestOptions::default(),
+    )
+    .unwrap();
+
+    let view = section_view(&source_root, SectionAxis::Inline, 0).unwrap();
+    assert_eq!(view.dataset_id.0, "source.zarr");
+    assert_eq!(view.axis, SectionAxis::Inline);
+    assert_eq!(view.traces, 5);
+    assert_eq!(view.samples, 50);
+}
+
+#[test]
+fn request_driven_render_rejects_dataset_mismatch() {
+    let temp = tempdir().unwrap();
+    let source_root = temp.path().join("source.zarr");
+    let csv_path = temp.path().join("inline.csv");
+
+    ingest_segy(
+        fixture_path("small.sgy"),
+        &source_root,
+        IngestOptions::default(),
+    )
+    .unwrap();
+
+    let error = render_section_csv_for_request(
+        &source_root,
+        &SectionRequest {
+            dataset_id: DatasetId("other.zarr".to_string()),
+            axis: SectionAxis::Inline,
+            index: 0,
+        },
+        &csv_path,
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, SeisRefineError::DatasetIdMismatch { .. }));
 }
 
 #[test]
